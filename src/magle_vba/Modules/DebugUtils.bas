@@ -1,16 +1,27 @@
-''
-'' Debug Module - Convenience functions for debugging ParsedDataCls and DataRowCls instances
-''
+'===============================================================================
+' Module: DebugUtils
+'===============================================================================
+' Description:
+'   Debugging utilities for inspecting ParsedDataCls and DataRowCls instances.
+'   Provides functions to print summary information and detailed data to the
+'   Immediate window and message boxes for troubleshooting.
+'===============================================================================
+
+'===============================================================================
+' [MACRO] PrintParsedDataInfo
+'===============================================================================
+' Description:
+'   Displays a summary of the current ParsedDataCls instance including the
+'   total number of rows loaded and details for the first 10 rows.
+'===============================================================================
 Public Sub PrintParsedDataInfo()
     Dim ParsedData As ParsedDataCls
     Set ParsedData = GetParsedData()
     
     Dim output As String
     output = "=== ParsedDataCls INSTANCE INFO ===" & vbCrLf & vbCrLf
-    
     output = output & "Total Rows Loaded: " & ParsedData.count & vbCrLf & vbCrLf
     
-    ' Print first 10 rows
     Dim MaxRows As Long
     MaxRows = IIf(ParsedData.count > 10, 10, ParsedData.count)
     
@@ -18,11 +29,11 @@ Public Sub PrintParsedDataInfo()
     output = output & "---" & vbCrLf
     
     Dim i As Long
-    Dim dataRow As DataRowCls
-    Dim dataArray As Variant
-    
     For i = 1 To MaxRows
+        Dim dataRow As DataRowCls
         Set dataRow = ParsedData.Rows(i)
+        
+        Dim dataArray As Variant
         dataArray = dataRow.Data
         
         output = output & "DataRow " & i & ":" & vbCrLf
@@ -35,19 +46,28 @@ Public Sub PrintParsedDataInfo()
         output = output & vbCrLf
     Next i
     
-    ' Print to Immediate Window
     Debug.Print output
-    
-    ' Also show in message box for visibility
     MsgBox output, vbInformation, "Data Instance Debug Info"
 End Sub
 
-'' ===== PRINT DATAROW DETAILS =====
-Public Sub PrintDataRowDetails(rowKey As String)
+'===============================================================================
+' [SUB] PrintDataRowDetails
+'===============================================================================
+' Description:
+'   Displays detailed information about a specific DataRowCls instance
+'   including all metadata, bounds, and data values.
+'
+' Parameters:
+'   rowKey : String
+'       The key identifying the data row to inspect
+'===============================================================================
+Public Sub PrintDataRowDetails( _
+    rowKey As String _
+)
     Dim ParsedData As ParsedDataCls
     Set ParsedData = GetParsedData()
     
-    Dim dataRow As DataRowCls
+    Dim Row As DataRowCls
     Set Row = ParsedData.GetRowFromKey(rowKey)
     
     Dim output As String
@@ -57,14 +77,13 @@ Public Sub PrintDataRowDetails(rowKey As String)
     output = output & "Name: " & Row.name & vbCrLf
     output = output & "Desc: " & Row.desc & vbCrLf
     output = output & "Unit: " & Row.unit & vbCrLf
-    output = output & "Goal: " & Row.goal & vbCrLf
+    output = output & "Target: " & Row.target & vbCrLf
     output = output & "Min: " & Row.min & vbCrLf
     output = output & "Max: " & Row.max & vbCrLf
     output = output & vbCrLf
     
-    ' Print data array
     Dim dataArray As Variant
-    dataArray = dataRow.Data
+    dataArray = Row.Data
     
     output = output & "Data Array (" & UBound(dataArray) & " points):" & vbCrLf
     output = output & "---" & vbCrLf

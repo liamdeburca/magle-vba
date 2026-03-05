@@ -1,7 +1,29 @@
-' File containing macros for sorting data in Exce
+'===============================================================================
+' Module: SortingMacros
+'===============================================================================
+' Description:
+'   Macros for sorting data rows in the Data worksheet.
+'   Provides ascending and descending sort operations that rearrange all
+'   data rows based on values in a selected row.
+'===============================================================================
 
-Private Function GetActiveDataRow(cell As Range) As DataRowCls
-    ' Gets the corresponding data row to the active cell
+'===============================================================================
+' [FUNCTION] GetActiveDataRow
+'===============================================================================
+' Description:
+'   Retrieves the DataRowCls instance corresponding to the row of the
+'   specified cell by looking up its key value.
+'
+' Parameters:
+'   cell : Range
+'       Any cell in the target row
+'
+' Returns:
+'   DataRowCls - The data row matching the cell's row key
+'===============================================================================
+Private Function GetActiveDataRow( _
+    cell As Range _
+) As DataRowCls
     Dim Specs As SpecsCls
     Set Specs = GetSpecs()
 
@@ -20,7 +42,20 @@ Private Function GetActiveDataRow(cell As Range) As DataRowCls
     Set GetActiveDataRow = dataRow
 End Function
 
-Public Sub SortAscending(cell As Range)
+'===============================================================================
+' [SUB] SortAscending
+'===============================================================================
+' Description:
+'   Sorts all data rows based on values in the row containing the specified
+'   cell, in ascending order. Skips if already sorted ascending.
+'
+' Parameters:
+'   cell : Range
+'       Any cell in the row to sort by
+'===============================================================================
+Public Sub SortAscending( _
+    cell As Range _
+)
     Dim dataRow As DataRowCls
     Set dataRow = GetActiveDataRow(cell)
 
@@ -34,7 +69,20 @@ Public Sub SortAscending(cell As Range)
     Call ParsedData.SortAlongRow(dataRow.key, ascending:=True)
 End Sub
 
-Public Sub SortDescending(cell As Range)
+'===============================================================================
+' [SUB] SortDescending
+'===============================================================================
+' Description:
+'   Sorts all data rows based on values in the row containing the specified
+'   cell, in descending order. Skips if already sorted descending.
+'
+' Parameters:
+'   cell : Range
+'       Any cell in the row to sort by
+'===============================================================================
+Public Sub SortDescending( _
+    cell As Range _
+)
     Dim dataRow As DataRowCls
     Set dataRow = GetActiveDataRow(cell)
 

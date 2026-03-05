@@ -1,31 +1,66 @@
-Private Function GetActiveDataRow(cell As Range) As DataRowCls
-    ' Gets the corresponding data row to the specified cell
+'===============================================================================
+' Module: MacroUtils
+'===============================================================================
+' Description:
+'   Utilities for managing macro dropdown menus in the Data sheet.
+'   Provides functionality to add dropdown validation cells and execute
+'   user-selected macros such as Describe, Sort, and Scatter plot.
+'===============================================================================
+
+'===============================================================================
+' [FUNCTION] GetActiveDataRow
+'===============================================================================
+' Description:
+'   Retrieves the DataRowCls instance corresponding to a given cell's row.
+'
+' Parameters:
+'   cell : Range
+'       Any cell in the target row
+'
+' Returns:
+'   DataRowCls - The data row at the cell's row index
+'===============================================================================
+Private Function GetActiveDataRow( _
+    cell As Range _
+) As DataRowCls
     Dim ParsedData As ParsedDataCls
     Set ParsedData = GetParsedData()
 
     Set GetActiveDataRow = ParsedData.GetRowFromIndex(cell.Row)
 End Function
 
-Public Sub ApplyMacrosToDataRow(dataRow As DataRowCls)
-    ' Applies a macro dropdown menu to the macro-cell in each datarow
+'===============================================================================
+' [SUB] ApplyMacrosToDataRow
+'===============================================================================
+' Description:
+'   Adds a dropdown validation menu to the macro column cell for a data row.
+'   The dropdown contains options: Describe, Sort (ASC), Sort (DESC), Scatter.
+'
+' Parameters:
+'   dataRow : DataRowCls
+'       The data row to add the macro dropdown to
+'===============================================================================
+Public Sub ApplyMacrosToDataRow( _
+    dataRow As DataRowCls _
+)
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Sheets("Data")
+    
     Dim Specs As SpecsCls
     Set Specs = GetSpecs()
 
     Dim rng As Range
     Set rng = ws.Range(Specs.MacroColumn & dataRow.rowIdx)
 
-    ' Clear any existing validation first
     On Error Resume Next
     rng.Validation.Delete
     On Error GoTo 0
 
-    ' Add the new validation
     With rng.Validation
-        .Add Type:=xlValidateList, _
-             AlertStyle:=xlValidAlertStop, _
-             Formula1:="Describe,Sort (ASC),Sort (DESC),Scatter"
+        .Add _
+            Type:=xlValidateList, _
+            AlertStyle:=xlValidAlertStop, _
+            Formula1:="Describe,Sort (ASC),Sort (DESC),Scatter"
         .IgnoreBlank = True
         .InCellDropdown = True
         .InputTitle = "Select a macro to run"
@@ -33,8 +68,20 @@ Public Sub ApplyMacrosToDataRow(dataRow As DataRowCls)
     End With
 End Sub
 
-Public Sub RunMacroFromDropdown(cell As Range)
-    ' Runs a macro specified by the cell, and subsequently clears the cell value
+'===============================================================================
+' [SUB] RunMacroFromDropdown
+'===============================================================================
+' Description:
+'   Executes the macro specified by a dropdown cell value, then clears the
+'   cell. Supports Describe, Sort (ASC), Sort (DESC), and Scatter operations.
+'
+' Parameters:
+'   cell : Range
+'       The dropdown cell containing the selected macro name
+'===============================================================================
+Public Sub RunMacroFromDropdown( _
+    cell As Range _
+)
     Dim cellValue As Variant
     cellValue = cell.value
     
@@ -64,8 +111,9 @@ Public Sub RunMacroFromDropdown(cell As Range)
             
         Case "Scatter"
             Call PlottingMacros.BasicScatterPlot_(cell)
+            
         Case Else
-            MsgBox "Macro " & macro & "not implemented yet!"
+            MsgBox "Macro " & CStr(cellValue) & " not implemented yet!"
     End Select
     
     cell.value = ""

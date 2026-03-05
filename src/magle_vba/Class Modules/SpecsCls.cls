@@ -1,41 +1,65 @@
+'===============================================================================
+' [CLASS] SpecsCls
+'===============================================================================
+' Description:
+'   Configuration class that defines the structure of the Data worksheet.
+'   Contains column letter assignments and row/column counts that tell
+'   DataRowCls and ParsedDataCls where to find data elements. This class
+'   centralizes worksheet layout configuration to make the system adaptable
+'   to different spreadsheet formats.
+'
+'   Typically accessed via the GetSpecs() function in ClsUtils, which
+'   maintains a singleton instance.
+'
+' Properties:
+'   StepColumn : String - Column letter for process step (default "A")
+'   NameColumn : String - Column letter for parameter name (default "B")
+'   DescColumn : String - Column letter for description (default "C")
+'   UnitColumn : String - Column letter for unit (default "D")
+'   KeyColumn : String - Column letter for generated key (default "E")
+'   TargetColumn : String - Column letter for target value (default "F")
+'   MinColumn : String - Column letter for minimum value (default "G")
+'   MaxColumn : String - Column letter for maximum value (default "H")
+'   MacroColumn : String - Column letter for macro dropdown (default "I")
+'   DataStartColumn : String - First column of measurement data (default "J")
+'   DataStartRow : Long - First row of data (default 3)
+'   NumColumns : Long - Number of data columns to read (default 5)
+'   NumRows : Long - Maximum rows to scan (default 75)
+'   BatchRowKey : String - Key for batch number row
+'   StartDateKey : String - Key for start date row
+'   PlotsSheetName : String - Name of the plots worksheet
+'===============================================================================
 Option Explicit
 
-' Column where step is located (e.g. "A")
 Private pStepColumn As String
-' Column where name is located (e.g. "B")
 Private pNameColumn As String
-' Column where description is located (e.g. "C")
 Private pDescColumn As String
-' Column where unit is located (e.g. "D")
 Private pUnitColumn As String
-' Column where key is located (e.g. "E")
 Private pKeyColumn As String
-' Column where the target is located (e.g. "F")
 Private pTargetColumn As String
-' Column where min is located (e.g. "G")
 Private pMinColumn As String
-' Column where max is located (e.g. "H")
 Private pMaxColumn As String
-' Column where macros are located (e.g. "I")
 Private pMacroColumn As String
-' Column where data starts (e.g. "J")
 Private pDataStartColumn As String
-
-' Row where data starts (e.g. 3)
 Private pDataStartRow As Long
-' Maximum number of columns to read
 Private pNumColumns As Long
-' Maximum number of rows to read
 Private pNumRows As Long
-
-' Batch number row key (e.g. "[00:00] Batchnummer")
 Private pBatchRowKey As String
-' Start date row key (e.g. "[00:00] Startdato")
 Private pStartDateKey As String
-
-' Sheet name to place plots
 Private pPlotsSheetName As String
 
+'===============================================================================
+' [SUB] Class_Initialize
+'===============================================================================
+' Description:
+'   Initializes the SpecsCls instance with default column assignments and
+'   row counts matching the standard Data worksheet layout.
+'
+'   Modify these defaults if your Data worksheet has a different structure, or
+'   if you want to adapt the system to a different format. The rest of the
+'   code relies on these properties to locate data, so they must be set 
+'   correctly.
+'===============================================================================
 Public Sub Class_Initialize()
     pStepColumn = "A"
     pNameColumn = "B"

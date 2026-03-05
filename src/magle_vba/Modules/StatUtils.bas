@@ -1,25 +1,37 @@
 Option Explicit
 
-' Statistical functions for working with double arrays containing potential NA errors
+'===============================================================================
+' Module: StatUtils
+'===============================================================================
+' Description:
+'   Statistical functions for working with arrays that may contain NA errors.
+'   Provides sorting utilities (ArgSort, Sort), descriptive statistics
+'   (Mean, Std), quantile/percentile calculations, and counting functions.
+'===============================================================================
 
-' ============================================================================
-' UTILITY FUNCTIONS
-' ============================================================================
-
-'''
-' Removes NA errors from an array (variant), returning a filtered array (double)
-' @param arr: Array potentially containing #N/A errors
-' @return: New array with NA values removed
+'===============================================================================
+' [FUNCTION] RemoveNA
+'===============================================================================
+' Description:
+'   Filters out NA error values from an array, returning only valid numeric
+'   values as a Double array.
 '
-Function RemoveNA(arr() As Variant) As Double()
+' Parameters:
+'   arr : Variant()
+'       Array potentially containing either double or #N/A errors
+'
+' Returns:
+'   Double() - New array with NA values removed
+'===============================================================================
+Function RemoveNA( _
+    arr() As Variant _
+) As Double()
     Dim result() As Double
     Dim count As Long
     Dim i As Long
-    Dim filtered As Boolean
     
     count = 0
     
-    ' Count non-NA values
     For i = LBound(arr) To UBound(arr)
         If Not IsError(arr(i)) Then count = count + 1
     Next i
@@ -34,7 +46,6 @@ Function RemoveNA(arr() As Variant) As Double()
     ReDim result(1 To count)
     count = 1
     
-    ' Copy non-NA values
     For i = LBound(arr) To UBound(arr)
         If Not IsError(arr(i)) Then
             result(count) = CDbl(arr(i))
@@ -45,41 +56,54 @@ Function RemoveNA(arr() As Variant) As Double()
     RemoveNA = result
 End Function
 
-' ============================================================================
-' SORTING FUNCTIONS
-' ============================================================================
-
-'''
-' Returns array of indices that would sort the input array
-' Uses quicksort algorithm
-' @param arr: Array to sort
-' @return: Array of indices (0-based) representing sorted order
+'===============================================================================
+' [FUNCTION] ArgSort
+'===============================================================================
+' Description:
+'   Returns an array of indices that would sort the input array.
+'   Uses quicksort algorithm internally.
 '
-Function ArgSort(arr() As Double) As Long()
+' Parameters:
+'   arr : Double()
+'       Array to compute sorted indices for
+'
+' Returns:
+'   Long() - Array of indices representing sorted order
+'===============================================================================
+Function ArgSort( _
+    arr() As Double _
+) As Long()
     Dim indices() As Long
     Dim N As Long
     
     N = UBound(arr) - LBound(arr) + 1
     ReDim indices(1 To N)
     
-    ' Initialize indices
     Dim i As Long
     For i = 1 To N
         indices(i) = LBound(arr) + i - 1
     Next i
     
-    ' QuickSort on indices
     Call QuickSortIndices(arr, indices, 1, N)
     
     ArgSort = indices
 End Function
 
-'''
-' Sorts an array using provided or calculated sort indices
-' @param arr: Array to sort
-' @param sortedIndices: Optional array of indices. If not provided, calculated via ArrayArgSort
-' @return: Sorted array
+'===============================================================================
+' [FUNCTION] Sort
+'===============================================================================
+' Description:
+'   Sorts an array using provided or calculated sort indices.
 '
+' Parameters:
+'   arr : Double()
+'       Array to sort
+'   sortedIndices : Variant (Optional)
+'       Pre-computed indices from ArgSort. If not provided, calculated.
+'
+' Returns:
+'   Double() - Sorted array
+'===============================================================================
 Function Sort( _
     arr() As Double, _
     Optional sortedIndices As Variant _
@@ -93,7 +117,6 @@ Function Sort( _
     N = UBound(arr) - LBound(arr) + 1
     ReDim result(1 To N)
     
-    ' Check if sortedIndices was provided
     hasIndices = False
     On Error Resume Next
     hasIndices = UBound(sortedIndices) >= LBound(sortedIndices)
@@ -105,7 +128,6 @@ Function Sort( _
         indices = sortedIndices
     End If
     
-    ' Build sorted result
     For i = 1 To N
         result(i) = arr(indices(i))
     Next i
@@ -113,7 +135,6 @@ Function Sort( _
     Sort = result
 End Function
 
-' Internal helper: QuickSort for indices
 Private Sub QuickSortIndices( _
     arr() As Double, _
     indices() As Long, _
@@ -129,7 +150,6 @@ Private Sub QuickSortIndices( _
     End If
 End Sub
 
-' Internal helper: Partition for QuickSort
 Private Function PartitionIndices( _
     arr() As Double, _
     indices() As Long, _
@@ -160,15 +180,19 @@ Private Function PartitionIndices( _
     PartitionIndices = i + 1
 End Function
 
-' ============================================================================
-' DESCRIPTIVE STATISTICS
-' ============================================================================
-
-'''
-' Calculates the arithmetic mean of an array
-' @param arr: Array of doubles
-' @return: Mean value
+'===============================================================================
+' [FUNCTION] Mean
+'===============================================================================
+' Description:
+'   Calculates the arithmetic mean of an array.
 '
+' Parameters:
+'   arr : Double()
+'       Array of numeric values
+'
+' Returns:
+'   Variant - Mean value, or #N/A error if array is empty
+'===============================================================================
 Function Mean( _
     arr() As Double _
 ) As Variant
@@ -190,12 +214,22 @@ Function Mean( _
     Mean = sum / N
 End Function
 
-'''
-' Calculates the standard deviation of an array
-' @param arr: Array of doubles
-' @param ddof: Degrees of freedom correction (default 1 for sample std dev)
-' @return: Standard deviation
+'===============================================================================
+' [FUNCTION] Std
+'===============================================================================
+' Description:
+'   Calculates the standard deviation of an array.
 '
+' Parameters:
+'   arr : Double()
+'       Array of numeric values
+'   ddof : Long (Optional)
+'       Delta degrees of freedom. Default 0 for population std dev.
+'       Use 1 for sample std dev.
+'
+' Returns:
+'   Variant - Standard deviation, or #N/A error if invalid
+'===============================================================================
 Function Std( _
     arr() As Double, _
     Optional ddof As Long = 0 _
@@ -223,17 +257,24 @@ Function Std( _
     Std = Sqr(sumSquaredDiff / (N - ddof))
 End Function
 
-' ============================================================================
-' QUANTILE FUNCTIONS
-' ============================================================================
-
-'''
-' Calculates a single quantile of an array
-' Uses linear interpolation (Type 7 - R default)
-' @param arr: Array of doubles
-' @param p: Quantile between 0 and 1
-' @return: Quantile value
+'===============================================================================
+' [FUNCTION] Quantile
+'===============================================================================
+' Description:
+'   Calculates a single quantile of an array using Type 7 linear
+'   interpolation (R default).
 '
+' Parameters:
+'   arr : Double()
+'       Array of numeric values
+'   q : Double
+'       Quantile between 0 and 1
+'   sortedIndices : Variant (Optional)
+'       Pre-computed sort indices to avoid redundant sorting
+'
+' Returns:
+'   Variant - Quantile value, or error if invalid input
+'===============================================================================
 Function Quantile( _
     arr() As Double, _
     q As Double, _
@@ -257,7 +298,6 @@ Function Quantile( _
         Exit Function
     End If
 
-    ' Check if sortedIndices was provided
     On Error Resume Next
     If UBound(sortedIndices) >= LBound(sortedIndices) Then
         sorted = Sort(arr, sortedIndices)
@@ -266,7 +306,6 @@ Function Quantile( _
     End If
     On Error GoTo 0
     
-    ' Type 7 interpolation: h = (n-1)*q + 1
     h = (N - 1) * q + 1
     hLower = Int(h)
     hUpper = hLower + 1
@@ -276,19 +315,29 @@ Function Quantile( _
     ElseIf hUpper > UBound(sorted) Then
         result = sorted(UBound(sorted))
     Else
-        ' Linear interpolation
         result = sorted(hLower) + (h - hLower) * (sorted(hUpper) - sorted(hLower))
     End If
     
     Quantile = result
 End Function
 
-'''
-' Calculates multiple quantiles of an array
-' @param arr: Array of doubles
-' @param ps: Array of quantiles between 0 and 1
-' @return: Array of quantile values
+'===============================================================================
+' [FUNCTION] Quantiles
+'===============================================================================
+' Description:
+'   Calculates multiple quantiles of an array.
 '
+' Parameters:
+'   arr : Double()
+'       Array of numeric values
+'   qs : Double()
+'       Array of quantiles between 0 and 1
+'   sortedIndices : Variant (Optional)
+'       Pre-computed sort indices
+'
+' Returns:
+'   Variant() - Array of quantile values
+'===============================================================================
 Function Quantiles( _
     arr() As Double, _
     qs() As Double, _
@@ -308,17 +357,24 @@ Function Quantiles( _
     Quantiles = result
 End Function
 
-' ============================================================================
-' PERCENTILE FUNCTIONS (Wrappers for Quantile)
-' ============================================================================
-
-'''
-' Calculates a single percentile of an array
-' Wrapper around ArrayQuantile (converts percentage to decimal)
-' @param arr: Array of doubles
-' @param p: Percentile between 0 and 100
-' @return: Percentile value
+'===============================================================================
+' [FUNCTION] Percentile
+'===============================================================================
+' Description:
+'   Calculates a single percentile of an array. Wrapper around Quantile
+'   that converts percentage to decimal.
 '
+' Parameters:
+'   arr : Double()
+'       Array of numeric values
+'   p : Double
+'       Percentile between 0 and 100
+'   sortedIndices : Variant (Optional)
+'       Pre-computed sort indices
+'
+' Returns:
+'   Variant - Percentile value
+'===============================================================================
 Function Percentile( _
     arr() As Double, _
     p As Double, _
@@ -331,13 +387,24 @@ Function Percentile( _
     End If
 End Function
 
-'''
-' Calculates multiple percentiles of an array
-' Wrapper around ArrayQuantiles (converts percentages to decimals)
-' @param arr: Array of doubles
-' @param ps: Array of percentiles between 0 and 100
-' @return: Array of percentile values
+'===============================================================================
+' [FUNCTION] Percentiles
+'===============================================================================
+' Description:
+'   Calculates multiple percentiles of an array. Wrapper around Quantiles
+'   that converts percentages to decimals.
 '
+' Parameters:
+'   arr : Double()
+'       Array of numeric values
+'   ps : Double()
+'       Array of percentiles between 0 and 100
+'   sortedIndices : Variant (Optional)
+'       Pre-computed sort indices
+'
+' Returns:
+'   Variant() - Array of percentile values
+'===============================================================================
 Function Percentiles( _
     arr() As Double, _
     ps() As Double, _
@@ -359,27 +426,57 @@ Function Percentiles( _
     Percentiles = Quantiles(arr, qs, sortedIndices:=sortedIndices)
 End Function
 
+'===============================================================================
+' [FUNCTION] CountMissing
+'===============================================================================
+' Description:
+'   Counts the number of missing or error elements in an array.
+'
+' Parameters:
+'   arr : Variant()
+'       Array potentially containing errors or empty values
+'
+' Returns:
+'   Integer - Count of missing/error elements
+'===============================================================================
 Function CountMissing( _
     arr() As Variant _
 ) As Integer
-    ' Counts the number of missing elements (xlErrNA)
     Dim count As Integer
     count = 0
     
     Dim element As Variant
     For Each element In arr
-        count = count - CInt(IsError(element) Or IsMissing(element) Or CStr(element) = "")
+        count = count - CInt( _
+            IsError(element) Or IsMissing(element) Or CStr(element) = "" _
+        )
     Next element
     
     CountMissing = count
 End Function
 
+'===============================================================================
+' [FUNCTION] CountAboveCritical
+'===============================================================================
+' Description:
+'   Counts elements in an array that exceed a critical value.
+'
+' Parameters:
+'   arr : Variant()
+'       Array of values to check
+'   criticalValue : Variant
+'       Threshold value to compare against
+'   inclusive : Boolean (Optional)
+'       If True, counts values >= criticalValue. Default False (>).
+'
+' Returns:
+'   Integer - Count of elements above critical value
+'===============================================================================
 Function CountAboveCritical( _
     arr() As Variant, _
     criticalValue As Variant, _
     Optional inclusive As Boolean = False _
 ) As Integer
-    ' Counts the number of elements of "arr" greater than "criticalValue"
     Dim count As Integer
     count = 0
     
@@ -402,12 +499,28 @@ Function CountAboveCritical( _
     CountAboveCritical = count
 End Function
 
+'===============================================================================
+' [FUNCTION] CountBelowCritical
+'===============================================================================
+' Description:
+'   Counts elements in an array that are below a critical value.
+'
+' Parameters:
+'   arr : Variant()
+'       Array of values to check
+'   criticalValue : Variant
+'       Threshold value to compare against
+'   inclusive : Boolean (Optional)
+'       If True, counts values <= criticalValue. Default False (<).
+'
+' Returns:
+'   Integer - Count of elements below critical value
+'===============================================================================
 Function CountBelowCritical( _
     arr() As Variant, _
     criticalValue As Variant, _
     Optional inclusive As Boolean = False _
 ) As Integer
-    ' Counts the number of elements of "arr" smaller than "criticalValue"
     Dim count As Integer
     count = 0
     
