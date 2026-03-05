@@ -1,0 +1,79 @@
+''
+'' Debug Module - Convenience functions for debugging ParsedDataCls and DataRowCls instances
+''
+Public Sub PrintParsedDataInfo()
+    Dim ParsedData As ParsedDataCls
+    Set ParsedData = GetParsedData()
+    
+    Dim output As String
+    output = "=== ParsedDataCls INSTANCE INFO ===" & vbCrLf & vbCrLf
+    
+    output = output & "Total Rows Loaded: " & ParsedData.count & vbCrLf & vbCrLf
+    
+    ' Print first 10 rows
+    Dim MaxRows As Long
+    MaxRows = IIf(ParsedData.count > 10, 10, ParsedData.count)
+    
+    output = output & "First " & MaxRows & " Rows:" & vbCrLf
+    output = output & "---" & vbCrLf
+    
+    Dim i As Long
+    Dim dataRow As DataRowCls
+    Dim dataArray As Variant
+    
+    For i = 1 To MaxRows
+        Set dataRow = ParsedData.Rows(i)
+        dataArray = dataRow.Data
+        
+        output = output & "DataRow " & i & ":" & vbCrLf
+        output = output & "  Key: " & dataRow.key & vbCrLf
+        output = output & "  Step: " & dataRow.step & vbCrLf
+        output = output & "  Name: " & dataRow.name & vbCrLf
+        output = output & "  Desc: " & dataRow.desc & vbCrLf
+        output = output & "  Unit: " & dataRow.unit & vbCrLf
+        output = output & "  Data Points: " & UBound(dataArray) & vbCrLf
+        output = output & vbCrLf
+    Next i
+    
+    ' Print to Immediate Window
+    Debug.Print output
+    
+    ' Also show in message box for visibility
+    MsgBox output, vbInformation, "Data Instance Debug Info"
+End Sub
+
+'' ===== PRINT DATAROW DETAILS =====
+Public Sub PrintDataRowDetails(rowKey As String)
+    Dim ParsedData As ParsedDataCls
+    Set ParsedData = GetParsedData()
+    
+    Dim dataRow As DataRowCls
+    Set Row = ParsedData.GetRowFromKey(rowKey)
+    
+    Dim output As String
+    output = "=== DataRowCls DETAILS ===" & vbCrLf & vbCrLf
+    output = output & "Key: " & Row.key & vbCrLf
+    output = output & "Step: " & Row.step & vbCrLf
+    output = output & "Name: " & Row.name & vbCrLf
+    output = output & "Desc: " & Row.desc & vbCrLf
+    output = output & "Unit: " & Row.unit & vbCrLf
+    output = output & "Goal: " & Row.goal & vbCrLf
+    output = output & "Min: " & Row.min & vbCrLf
+    output = output & "Max: " & Row.max & vbCrLf
+    output = output & vbCrLf
+    
+    ' Print data array
+    Dim dataArray As Variant
+    dataArray = dataRow.Data
+    
+    output = output & "Data Array (" & UBound(dataArray) & " points):" & vbCrLf
+    output = output & "---" & vbCrLf
+    
+    Dim i As Long
+    For i = LBound(dataArray) To UBound(dataArray)
+        output = output & "  [" & i & "] = " & dataArray(i) & vbCrLf
+    Next i
+    
+    Debug.Print output
+    MsgBox output, vbInformation, "DataRowCls Debug Details"
+End Sub
