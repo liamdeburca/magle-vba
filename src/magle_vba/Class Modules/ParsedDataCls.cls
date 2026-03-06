@@ -1,24 +1,3 @@
-'===============================================================================
-' [CLASS] ParsedDataCls
-'===============================================================================
-' Description:
-'   Container class that manages a collection of DataRowCls instances loaded
-'   from the Data worksheet. This is the primary interface for accessing and
-'   manipulating batch measurement data. ParsedDataCls handles loading rows
-'   from the worksheet, cropping to non-empty columns, applying conditional
-'   formatting, and coordinating sorts across all rows.
-'
-'   Typically accessed via the GetParsedData() function in ClsUtils, which
-'   maintains a singleton instance for performance.
-'
-' Properties:
-'   Rows : Collection
-'       Collection of DataRowCls instances
-'   count : Long
-'       Number of data rows loaded
-'   Keys : String()
-'       Array of all row keys for lookup
-'===============================================================================
 Option Explicit
 
 Private pRows As Collection
@@ -29,11 +8,13 @@ Private pNumRowsMax As Long
 ' [PROPERTY] Rows
 '===============================================================================
 ' Description:
-'   Returns the collection of DataRowCls instances.
+'   Returns the internal Collection of all loaded DataRowCls instances.
+'   Each item in the collection corresponds to one data row from the Data
+'   worksheet.
 '
 ' Returns:
 '   Collection
-'       Collection containing all loaded DataRowCls objects
+'       A Collection of DataRowCls objects, one per loaded row
 '===============================================================================
 Public Property Get Rows() As Collection
     Set Rows = pRows
@@ -43,7 +24,9 @@ End Property
 ' [SUB] Class_Initialize
 '===============================================================================
 ' Description:
-'   Initializes a new ParsedDataCls instance with an empty collection.
+'   Initializes a new ParsedDataCls instance. Called automatically when
+'   creating a new instance with "New ParsedDataCls". Sets up an empty
+'   collection to hold future DataRowCls objects.
 '===============================================================================
 Public Sub Class_Initialize()
     Set pRows = New Collection
@@ -53,11 +36,17 @@ End Sub
 ' [SUB] Init
 '===============================================================================
 ' Description:
-'   Loads and processes all data rows from the Data worksheet. Calls
-'   PopulateFromData, Crop, ApplyConditionalFormatting, and ApplyMacros
-'   in sequence.
+'   Loads and processes all data from the Data worksheet. This is the main
+'   entry point for populating a ParsedDataCls instance after it is created.
+'   Sequentially calls PopulateFromData, Crop, ApplyConditionalFormatting,
+'   and ApplyMacros. On error, displays a diagnostic message box.
+'
+' Notes:
+'   - Should be called once after "New ParsedDataCls" via ClsUtils.Start
+'   - ClsUtils.GetParsedData handles pausing/resuming screen updates
 '===============================================================================
 Public Sub Init()
+    ' Pause recalculation
     Dim msg As String
     msg = "Initialising ParsedDataCls" & vbCrLf
     msg = msg + String(Len(msg), "-") & vbCrLf
@@ -86,43 +75,54 @@ ErrorHandler:
     MsgBox msg, vbInformation, "(ParsedDataCls) Init"
 End Sub
 
+' ----- Private methods -----
+
 '===============================================================================
 ' [SUB] PopulateFromData
 '===============================================================================
 ' Description:
-'   Reads all valid rows from the Data worksheet and creates DataRowCls
-'   instances for each. Stops when encountering empty rows after data.
+'   Reads the Data worksheet row by row and creates a DataRowCls instance
+'   for each valid row (i.e. rows where both step and name are present).
+'   Stops reading when an empty row is encountered after at least one row
+'   has been successfully loaded. Each DataRowCls instance is added to the
+'   internal Rows collection keyed by its unique key string.
+'
+' Notes:
+'   - Reads rows from Specs.DataStartRow to Specs.NumRows
+'   - Depends on SpecsCls for column/row configuration
+'   - Clears the existing collection before re-populating
 '===============================================================================
 Private Sub PopulateFromData()
+    ' Clear current row collection
     Set pRows = New Collection
     
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Sheets("Data")
-    
     Dim Specs As SpecsCls
     Set Specs = GetSpecs()
+    
+    Dim dataRow As DataRowCls
+    Dim step As Variant, name As Variant, desc As Variant
     
     Dim hasAddedRows As Boolean
     hasAddedRows = False
     
     Dim rowIdx As Long
     For rowIdx = Specs.DataStartRow To Specs.NumRows
-        Dim stepVal As Variant
-        Dim nameVal As Variant
-        Dim descVal As Variant
-        stepVal = ws.Range(Specs.StepColumn & rowIdx).value
-        nameVal = ws.Range(Specs.NameColumn & rowIdx).value
-        descVal = ws.Range(Specs.DescColumn & rowIdx).value
+        ' Check if first three cells are empty
+        step = ws.Range(Specs.StepColumn & rowIdx).value
+        name = ws.Range(Specs.NameColumn & rowIdx).value
+        desc = ws.Range(Specs.DescColumn & rowIdx).value
         
         If hasAddedRows And _
-            (IsEmpty(stepVal) Or stepVal = "") And _
-            (IsEmpty(nameVal) Or nameVal = "") And _
-            (IsEmpty(descVal) Or descVal = "") Then
+            (IsEmpty(step) Or step = "") And _
+            (IsEmpty(name) Or name = "") And _
+            (IsEmpty(desc) Or desc = "") Then
+            ' If at least one row has been added and first three cells are empty, stop
             Exit For
             
-        ElseIf Not (IsEmpty(stepVal) Or stepVal = "") And _
-               Not (IsEmpty(nameVal) Or nameVal = "") Then
-            Dim dataRow As DataRowCls
+        ElseIf Not (IsEmpty(step) Or step = "") And Not (IsEmpty(name) Or name = "") Then
+            ' Create DataRow
             Set dataRow = New DataRowCls
             Call dataRow.LoadFromSheet(rowIdx)
             Call pRows.Add(dataRow, key:=dataRow.key)
@@ -135,37 +135,53 @@ End Sub
 ' [SUB] Crop
 '===============================================================================
 ' Description:
-'   Crops all DataRowCls instances to the length of the longest non-empty
-'   data sequence, removing trailing empty cells.
+'   Trims the data arrays of all loaded DataRowCls instances to remove
+'   trailing empty cells. Finds the maximum occupied column index across
+'   all non-formula rows, then crops every row to that length.
+'
+' Notes:
+'   - Rows flagged as formula rows (HasFormula = True) are excluded from
+'     the length calculation since they can extend infinitely
+'   - Operates in-place on all rows in the collection
 '===============================================================================
 Private Sub Crop()
-    Dim lengths() As Long
-    ReDim lengths(1 To pRows.count)
+    ' Crops each DataRowCls instance s.t. every non-empty cell is only just
+    ' included.
     
-    Dim i As Long
+    Dim i As Long, curLength As Long, maxLength As Long
+    Dim dataRow As DataRowCls
+    
+    maxLength = 0
     For i = 1 To pRows.count
-        Dim dataRow As DataRowCls
         Set dataRow = pRows(i)
-        lengths(i) = dataRow.GetIndexOfLastNonEmpty()
+        
+        ' DataRows may have infinite values if they're calculated using formulas
+        If Not dataRow.HasFormula Then
+            curLength = dataRow.GetIndexOfLastNonEmpty
+            If curLength > maxLength Then maxLength = curLength
+        End If
     Next i
-
-    Dim maxLength As Long
-    maxLength = Application.WorksheetFunction.max(lengths)
-
-    Dim row As DataRowCls
-    For Each row In pRows
-        Call row.CropToLength(maxLength, inplace:=True)
-    Next row
+        
+    For Each dataRow In pRows
+        Call dataRow.CropToLength(maxLength, inplace:=True)
+    Next dataRow
 End Sub
 
 '===============================================================================
 ' [SUB] ApplyConditionalFormatting
 '===============================================================================
 ' Description:
-'   Applies conditional formatting to all data rows that have min/max bounds.
+'   Applies conditional formatting rules to all loaded DataRowCls instances.
+'   Rows with defined min/max bounds get colour-coded highlighting: values
+'   below the minimum appear in blue, values above the maximum appear in red.
+'
+' Notes:
+'   - Delegates to DataRowCls.ApplyConditionalFormatting for each row
+'   - Formatting is written to the Data worksheet
 '===============================================================================
 Private Sub ApplyConditionalFormatting()
     Dim dataRow As DataRowCls
+    
     For Each dataRow In pRows
         Call dataRow.ApplyConditionalFormatting
     Next dataRow
@@ -175,37 +191,47 @@ End Sub
 ' [SUB] ApplyMacros
 '===============================================================================
 ' Description:
-'   Applies macro dropdown menus to all data rows.
+'   Adds a dropdown macro selector to the macro column cell of every loaded
+'   DataRowCls instance in the Data worksheet. This enables users to trigger
+'   actions (Describe, Sort, Scatter) directly from the sheet.
+'
+' Notes:
+'   - Delegates to DataRowCls.ApplyMacros for each row
+'   - Dropdown options are defined in MacroUtils.ApplyMacrosToDataRow
 '===============================================================================
 Private Sub ApplyMacros()
     Dim dataRow As DataRowCls
+    
     For Each dataRow In pRows
         Call dataRow.ApplyMacros
     Next dataRow
 End Sub
 
+' ----- Public methods -----
+
 '===============================================================================
 ' [FUNCTION] GetRowFromKey
 '===============================================================================
 ' Description:
-'   Finds and returns a DataRowCls instance by its key. First attempts an
-'   exact match, then falls back to prefix matching.
+'   Retrieves a DataRowCls instance by its unique key string. First attempts
+'   an exact match; if that fails, falls back to prefix matching. A prefix
+'   match succeeds only when exactly one row starts with the given key.
 '
 ' Parameters:
 '   key : String
-'       The key or key prefix to search for
+'       The key to search for, e.g. "[01:00] Temperature" or a prefix
+'       thereof
 '
 ' Returns:
 '   DataRowCls
 '       The matching DataRowCls instance
 '
 ' Notes:
-'   - Raises error 1004 if no matching row is found
-'   - Raises error 1005 if multiple rows match a prefix
+'   - Raises error 1004 if no match is found
+'   - Raises error 1005 if multiple prefix matches are found
 '===============================================================================
-Public Function GetRowFromKey( _
-    key As String _
-) As DataRowCls
+Public Function GetRowFromKey(key As String) As DataRowCls
+    ' First pass: check for exact matches
     Dim i As Long
     For i = 1 To pRows.count
         If pRows(i).key = key Then
@@ -214,6 +240,7 @@ Public Function GetRowFromKey( _
         End If
     Next i
     
+    ' Second pass: check for partial matches (prefix matching)
     Dim partialMatches As Collection
     Set partialMatches = New Collection
     
@@ -223,6 +250,7 @@ Public Function GetRowFromKey( _
         End If
     Next i
     
+    ' Handle results
     Dim emsg As String
     If partialMatches.count = 0 Then
         emsg = "No DataRow found matching key: " & key
@@ -241,23 +269,24 @@ End Function
 ' [FUNCTION] GetRowFromIndex
 '===============================================================================
 ' Description:
-'   Finds and returns a DataRowCls instance by its worksheet row index.
+'   Retrieves a DataRowCls instance by its row index in the Data worksheet.
+'   Iterates through all loaded rows and returns the first one whose rowIdx
+'   matches the given index.
 '
 ' Parameters:
 '   index : Long
-'       The row number in the Data worksheet
+'       The worksheet row number to look up (1-based)
 '
 ' Returns:
 '   DataRowCls
 '       The matching DataRowCls instance
 '
 ' Notes:
-'   - Raises error 1004 if no row exists at the specified index
+'   - Raises error 1004 if no row with the given index exists
 '===============================================================================
-Public Function GetRowFromIndex( _
-    index As Long _
-) As DataRowCls
+Public Function GetRowFromIndex(index As Long) As DataRowCls
     Dim dataRow As DataRowCls
+
     For Each dataRow In pRows
         If dataRow.rowIdx = index Then
             Set GetRowFromIndex = dataRow
@@ -275,11 +304,11 @@ End Function
 ' [PROPERTY] count
 '===============================================================================
 ' Description:
-'   Returns the number of DataRowCls instances in the collection.
+'   Returns the number of DataRowCls instances currently loaded.
 '
 ' Returns:
 '   Long
-'       Count of loaded data rows
+'       The number of rows in the collection
 '===============================================================================
 Public Property Get count() As Long
     count = pRows.count
@@ -289,17 +318,18 @@ End Property
 ' [PROPERTY] Keys
 '===============================================================================
 ' Description:
-'   Returns an array of all row keys for enumeration or lookup.
+'   Returns an array of all key strings from the loaded DataRowCls instances.
+'   Useful for iterating over or searching through available rows.
 '
 ' Returns:
 '   String()
-'       Array of key strings
+'       Array of key strings (1-based), one per loaded row
 '===============================================================================
 Public Property Get Keys() As String()
     Dim result() As String
+    Dim i As Long
     ReDim result(1 To pRows.count)
 
-    Dim i As Long
     For i = 1 To pRows.count
         result(i) = pRows(i).key
     Next i
@@ -307,38 +337,50 @@ Public Property Get Keys() As String()
 End Property
 
 '===============================================================================
-' [SUB] SortAlongRow
+' [FUNCTION] SortAlongRow
 '===============================================================================
 ' Description:
-'   Sorts all rows in the collection based on the data values of the
-'   specified row. This maintains alignment across all measurements when
-'   reordering by a particular parameter (e.g., sorting all data by date).
+'   Sorts all loaded DataRowCls instances by the data values in a specified
+'   row. The sort order derived from the reference row is applied uniformly
+'   to every other row, keeping column data aligned. Empty values in the
+'   reference row are always placed last.
 '
 ' Parameters:
 '   key : String
-'       Key of the row to use as the sort basis
+'       The key of the DataRowCls instance whose data determines the sort
+'       order
 '   ascending : Boolean, Optional
-'       Sort direction. Default: True (ascending)
+'       If True (default), sorts smallest to largest; if False, largest to
+'       smallest
+'
+' Notes:
+'   - Does nothing if the target row is already sorted in the requested
+'     direction
+'   - All rows are written back to the worksheet after sorting
 '===============================================================================
-Public Sub SortAlongRow( _
-    key As String, _
-    Optional ascending As Boolean = True _
-)
+Public Function SortAlongRow(key As String, Optional ascending As Boolean = True)
+    ' Sorts all rows in the collection based on the data of the specified row
+    ' Input: key - string mapping to a DataRowCls instance
+    '        ascending - sort direction (default: True for ascending)
+    ' If the row is already sorted, does nothing
     Dim sortRow As DataRowCls
     Set sortRow = Me.GetRowFromKey(key)
     
+    ' Check if already sorted
     If sortRow.IsSorted(ascending) Then
-        Exit Sub
+        Exit Function
     End If
     
+    ' Get the sorted indices
     Dim indices() As Long
     indices = sortRow.GetArgsort(ascending)
     
+    ' Apply the sort order to all rows
     Dim i As Long
+    Dim dataRow As DataRowCls
     For i = 1 To pRows.count
-        Dim dataRow As DataRowCls
         Set dataRow = pRows(i)
         Call dataRow.ApplyArgsort(indices)
         Call dataRow.UpdateData
     Next i
-End Sub
+End Function

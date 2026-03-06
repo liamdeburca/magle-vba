@@ -1,29 +1,27 @@
-'===============================================================================
-' Module: FormattingUtils
-'===============================================================================
-' Description:
-'   Utilities for conditional formatting of values in the Data sheet.
-'   Provides functions to check if values exceed specification bounds and
-'   applies visual formatting rules to highlight out-of-spec data points.
-'===============================================================================
+' Utilities For formatting values in the Data sheet
 
 '===============================================================================
 ' [FUNCTION] IsBelowMin
 '===============================================================================
 ' Description:
-'   Checks whether the value in a cell falls below the minimum specification
-'   limit for its corresponding data row.
+'   Returns True if the numeric value of the given cell is less than the
+'   minimum bound defined for that measurement row. Called by Excel
+'   conditional formatting formulas to highlight out-of-range values in
+'   blue.
 '
 ' Parameters:
 '   cell : Range
-'       The cell to evaluate
+'       The cell whose value is being evaluated
 '
 ' Returns:
-'   Boolean - True if cell value is below min, False otherwise
+'   Boolean
+'       True if the cell value is below the row minimum, False otherwise
+'
+' Notes:
+'   - Returns False for empty cells or cells without a defined minimum
+'   - Relies on ParsedDataCls to look up the DataRowCls for the cell's row
 '===============================================================================
-Public Function IsBelowMin( _
-    cell As Range _
-) As Boolean
+Public Function IsBelowMin(cell As Range) As Boolean
     If IsEmpty(cell.value) Or cell.value = "" Then
         IsBelowMin = False
         Exit Function
@@ -47,19 +45,23 @@ End Function
 ' [FUNCTION] IsAboveMax
 '===============================================================================
 ' Description:
-'   Checks whether the value in a cell exceeds the maximum specification
-'   limit for its corresponding data row.
+'   Returns True if the numeric value of the given cell exceeds the maximum
+'   bound defined for that measurement row. Called by Excel conditional
+'   formatting formulas to highlight out-of-range values in red.
 '
 ' Parameters:
 '   cell : Range
-'       The cell to evaluate
+'       The cell whose value is being evaluated
 '
 ' Returns:
-'   Boolean - True if cell value is above max, False otherwise
+'   Boolean
+'       True if the cell value is above the row maximum, False otherwise
+'
+' Notes:
+'   - Returns False for empty cells or cells without a defined maximum
+'   - Relies on ParsedDataCls to look up the DataRowCls for the cell's row
 '===============================================================================
-Public Function IsAboveMax( _
-    cell As Range _
-) As Boolean
+Public Function IsAboveMax(cell As Range) As Boolean
     If IsEmpty(cell.value) Or cell.value = "" Then
         IsAboveMax = False
         Exit Function
@@ -83,20 +85,25 @@ End Function
 ' [SUB] ApplyConditionalFormattingToDataRow
 '===============================================================================
 ' Description:
-'   Applies conditional formatting rules to a data row that highlight values
-'   outside specification limits. Values below min are formatted blue bold,
-'   values above max are formatted red bold.
+'   Writes two conditional formatting rules to the full data range of the
+'   given DataRowCls row in the Data worksheet:
+'     - Values below the row minimum are shown in bold blue text
+'     - Values above the row maximum are shown in bold red text
+'   The rules use formula-based conditions that call IsBelowMin and
+'   IsAboveMax respectively, so formatting updates dynamically as data
+'   changes.
 '
 ' Parameters:
 '   dataRow : DataRowCls
-'       The data row to apply formatting to
+'       The row instance whose worksheet range should receive the rules
+'
+' Notes:
+'   - Any existing formatting rules on the range are deleted first
+'   - Called by DataRowCls.ApplyConditionalFormatting during Init
 '===============================================================================
-Public Sub ApplyConditionalFormattingToDataRow( _
-    dataRow As DataRowCls _
-)
+Public Sub ApplyConditionalFormattingToDataRow(dataRow As DataRowCls)
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Sheets("Data")
-    
     Dim Specs As SpecsCls
     Set Specs = GetSpecs()
 
@@ -105,37 +112,30 @@ Public Sub ApplyConditionalFormattingToDataRow( _
 
     Dim firstCell As Range
     Set firstCell = ws.Cells(dataRow.rowIdx, dataStartCol)
-    
     Dim firstCellRef As String
-    firstCellRef = firstCell.address(False, False)
+    firstCellRef = firstCell.Address(False, False)  ' Relative reference like A5
 
     Dim dataRange As Range
-    Set dataRange = ws.Range( _
-        ws.Cells(dataRow.rowIdx, dataStartCol), _
-        ws.Cells(dataRow.rowIdx, dataStartCol + Specs.NumColumns - 1) _
-    )
+    Set dataRange = ws.Range(ws.Cells(dataRow.rowIdx, dataStartCol), _
+        ws.Cells(dataRow.rowIdx, dataStartCol + Specs.NumColumns - 1))
 
     dataRange.FormatConditions.Delete
 
-    With dataRange.FormatConditions.Add( _
-        xlExpression, _
-        , _
-        "=IsBelowMin(" & firstCellRef & ")" _
-    )
+    ' Add "Below Min" rule - formula evaluates each cell individually
+    With dataRange.FormatConditions.Add(xlExpression, , "=IsBelowMin(" & firstCellRef & ")")
         With .Font
-            .Color = RGB(0, 0, 255)
+            .Color = RGB(0, 0, 255)  ' Blue
             .Bold = True
         End With
     End With
 
-    With dataRange.FormatConditions.Add( _
-        xlExpression, _
-        , _
-        "=IsAboveMax(" & firstCellRef & ")" _
-    )
+    ' Add "Above Max" rule - formula evaluates each cell individually
+    With dataRange.FormatConditions.Add(xlExpression, , "=IsAboveMax(" & firstCellRef & ")")
         With .Font
-            .Color = RGB(255, 0, 0)
+            .Color = RGB(255, 0, 0)  ' Red
             .Bold = True
         End With
     End With
 End Sub
+
+

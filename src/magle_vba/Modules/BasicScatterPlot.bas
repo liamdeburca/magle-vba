@@ -2,23 +2,25 @@
 ' [FUNCTION] ConvertVariantToMask
 '===============================================================================
 ' Description:
-'   Converts a Variant array of boolean-like values to a typed Boolean array.
-'   Used for processing mask parameters passed from worksheet ranges.
+'   Converts a Variant array of Boolean-compatible values into a typed
+'   Boolean array (1-based). Used internally to normalise the optional
+'   mask parameter passed to PrepareData and Run.
 '
 ' Parameters:
 '   mask : Variant
-'       Array or collection of values that can be converted to Boolean
+'       A Variant array whose elements can be coerced to Boolean
 '
 ' Returns:
 '   Boolean()
-'       Typed Boolean array
+'       A 1-based Boolean array with the same values
 '===============================================================================
 Private Function ConvertVariantToMask( _
     mask As Variant _
 ) As Boolean()
     Dim maskCollection As New Collection
-    
     Dim maskElement As Variant
+    Dim maskIdx As Long
+    
     For Each maskElement In mask
         Call maskCollection.Add(CBool(maskElement))
     Next maskElement
@@ -26,7 +28,6 @@ Private Function ConvertVariantToMask( _
     Dim newMask() As Boolean
     ReDim newMask(1 To maskCollection.count)
     
-    Dim maskIdx As Long
     For maskIdx = 1 To maskCollection.count
         newMask(maskIdx) = maskCollection.Item(maskIdx)
     Next maskIdx
@@ -38,30 +39,33 @@ End Function
 ' [FUNCTION] PrepareData
 '===============================================================================
 ' Description:
-'   Prepares all data arrays needed for plotting. Applies optional masks,
-'   scaling, and computes target/limit/statistic lines. Returns a Collection
-'   containing DataRowCls instances and derived arrays.
+'   Assembles all arrays needed for a scatter plot into a single Collection.
+'   Applies an optional Boolean mask to filter batches, scales y-values by
+'   an optional conversion factor, replaces empty x labels with "?", and
+'   computes optional horizontal reference lines (min, max, target, stat).
 '
 ' Parameters:
 '   xDataRow : DataRowCls
-'       Data row for x-axis values
+'       The row providing x-axis category labels (batch numbers)
 '   yDataRow : DataRowCls
-'       Data row for y-axis values
+'       The row providing y-axis measurement values
 '   x2DataRow : Variant, Optional
-'       Secondary x-axis data row
+'       A second category row for a secondary x-axis (e.g. start dates)
 '   mask : Variant, Optional
-'       Boolean mask to filter data points
+'       Boolean array to filter columns; True keeps the column
 '   yConversion : Double, Optional
-'       Divisor for y-values (default: 1)
+'       Divisor applied to all y-values and bounds. Default: 1.0
 '   yMargins : Double, Optional
-'       Fraction of y-range to add as padding (default: 0.05)
+'       Fractional padding added to the y-axis range. Default: 0.05
 '   stat : String, Optional
-'       Statistic to compute ("mean" or "median")
+'       Statistic line to add: "mean", "median", or "" for none.
+'       Default: ""
 '
 ' Returns:
 '   Collection
-'       Contains: xDR, yDR, x2DR (DataRowCls), x, y, x2 (arrays),
-'       yTarget, yLower, yUpper, yStat (arrays)
+'       A Collection containing the following keyed arrays and objects:
+'       "xDR", "yDR", ["x2DR"], "x", "y", ["x2"],
+'       "yTarget", "yLower", "yUpper", "yStat"
 '===============================================================================
 Private Function PrepareData( _
     xDataRow As DataRowCls, _
@@ -72,12 +76,10 @@ Private Function PrepareData( _
     Optional yMargins As Double = 0.05, _
     Optional stat As String = "" _
 ) As Collection
+    '' Prepares all data for plotting, returning a collection of double-arrays.
     Dim result As New Collection
     
-    Dim xDR As DataRowCls
-    Dim yDR As DataRowCls
-    Dim x2DR As DataRowCls
-    
+    Dim xDR As DataRowCls, yDR As DataRowCls, x2DR As DataRowCls
     If Not IsMissing(mask) Or Not Application.WorksheetFunction.And(mask) Then
         Dim mask_() As Boolean
         mask_ = ConvertVariantToMask(mask)
@@ -95,9 +97,8 @@ Private Function PrepareData( _
         End If
     End If
     
-    Dim x() As String
-    Dim y() As Variant
-    Dim x2() As String
+    '' Load data
+    Dim x() As String, y() As Variant, x2() As String
     x = xDR.txtData
     y = yDR.DblData
     
@@ -107,49 +108,55 @@ Private Function PrepareData( _
         x2 = x2DR.txtData
     End If
     
+    '' Replace missing x-axis labels
     Dim i As Long
     For i = 1 To UBound(x)
         If x(i) = "" Then x(i) = "?"
         If Not IsMissing(x2DataRow) And x2(i) = "" Then x2(i) = "?"
     Next i
     
+    '' Apply y-value scaling
     For i = 1 To UBound(y)
         If Not IsError(y(i)) Then y(i) = CDbl(y(i)) / yConversion
     Next i
     
+    '' Create array of min y-values
     Dim yLower() As Double
     If IsError(yDR.min) Then
         ReDim yLower(0)
     Else
         ReDim yLower(1 To UBound(y))
+        
         yLower(1) = yDR.min / yConversion
         For i = 2 To UBound(y)
             yLower(i) = yLower(1)
         Next i
     End If
-    
+    '' Create array of max y-values
     Dim yUpper() As Double
     If IsError(yDR.max) Then
         ReDim yUpper(0)
     Else
         ReDim yUpper(1 To UBound(y))
+        
         yUpper(1) = yDR.max / yConversion
         For i = 2 To UBound(y)
             yUpper(i) = yUpper(1)
         Next i
     End If
-    
+    '' Create array of target y-values
     Dim yTarget() As Double
     If IsError(yDR.target) Then
         ReDim yTarget(0)
     Else
         ReDim yTarget(1 To UBound(y))
+        
         yTarget(1) = yDR.target / yConversion
         For i = 2 To UBound(y)
             yTarget(i) = yTarget(1)
         Next i
     End If
-    
+    '' Create array of statistic values
     Dim statValue As Variant
     Select Case Trim(LCase(stat))
         Case "mean"
@@ -157,6 +164,7 @@ Private Function PrepareData( _
         Case "median"
             statValue = StatUtils.Quantile(StatUtils.RemoveNA(y), 0.5)
         Case ""
+            ' Do nothing
             statValue = CVErr(xlNAErr)
     End Select
     
@@ -171,6 +179,7 @@ Private Function PrepareData( _
         Next i
     End If
     
+    '' Add arrays to output
     Call result.Add(xDR, key:="xDR")
     Call result.Add(yDR, key:="yDR")
     If Not IsMissing(x2DataRow) Then Call result.Add(x2DR, key:="x2DR")
@@ -191,33 +200,43 @@ End Function
 ' [FUNCTION] Run
 '===============================================================================
 ' Description:
-'   Creates a scatter plot chart visualizing y-values against x-values (batch
-'   labels). Adds optional horizontal lines for target, min/max bounds, and
-'   computed statistics. Supports secondary x-axis for dual labeling.
+'   Creates a formatted scatter plot chart on the specified (or active)
+'   worksheet. Plots y-values against x-axis category labels with optional
+'   secondary x-axis, reference lines (target, min, max, statistic),
+'   gridlines, legend, and axis titles derived from the DataRowCls metadata.
+'
+'   The y-axis scale is automatically fitted to include all data and
+'   reference lines with configurable margin padding.
 '
 ' Parameters:
 '   xDataRow : DataRowCls
-'       Data row containing x-axis labels (e.g., batch numbers)
+'       Row providing x-axis category labels (typically batch numbers)
 '   yDataRow : DataRowCls
-'       Data row containing y-axis measurement values
+'       Row providing y-axis measurement values
 '   x2DataRow : Variant, Optional
-'       Secondary x-axis data row (e.g., dates)
+'       Row for a secondary x-axis (e.g. start dates shown above the chart)
 '   mask : Variant, Optional
-'       Boolean mask to filter data points
+'       Boolean filter array to include only selected batches
 '   targetSheet : String, Optional
-'       Name of worksheet to place chart (default: active sheet)
+'       Name of the worksheet to place the chart on. Defaults to the
+'       active sheet.
 '   yConversion : Double, Optional
-'       Divisor for y-values (default: 1)
+'       Divisor applied to all y-values and reference lines. Default: 1.0
 '   yMargins : Double, Optional
-'       Fraction of y-range for axis padding (default: 0.05)
+'       Fractional padding on the y-axis. Default: 0.05 (5 %)
 '   stat : String, Optional
-'       Statistic line to add ("mean" or "median")
+'       Horizontal statistic line: "mean", "median", or "". Default: ""
 '   addGrid : Boolean, Optional
-'       Whether to add gridlines (default: True)
+'       If True (default), major gridlines are shown on both axes
 '   addTitle : Boolean, Optional
-'       Whether to add chart title (default: True)
+'       If True (default), the chart title is set to yDataRow.key
 '   addLegend : Boolean, Optional
-'       Whether to add legend (default: True)
+'       If True (default), a legend is shown at the bottom of the chart
+'
+' Example:
+'   Call BasicScatterPlot.Run(batchRow, tempRow, _
+'       x2DataRow:=dateRow, stat:="mean", _
+'       targetSheet:="Plots")
 '===============================================================================
 Function Run( _
     xDataRow As DataRowCls, _
@@ -232,6 +251,9 @@ Function Run( _
     Optional addTitle As Boolean = True, _
     Optional addLegend As Boolean = True _
 )
+    ' Basic plotting routine for plotting x vs y
+    
+    '' Choose target sheet
     Dim ws As Worksheet
     If IsMissing(targetSheet) Then
         Set ws = ThisWorkbook.ActiveSheet
@@ -239,6 +261,7 @@ Function Run( _
         Set ws = ThisWorkbook.Worksheets(targetSheet)
     End If
     
+    '' Prepare Data
     Dim preparedDataCollection As New Collection
     Set preparedDataCollection = PrepareData( _
         xDataRow, _
@@ -248,10 +271,8 @@ Function Run( _
         yConversion:=yConversion, _
         stat:=stat _
     )
-    
     Dim x() As String
     x = preparedDataCollection.Item("x")
-    
     Dim y() As Variant
     y = preparedDataCollection.Item("y")
     
@@ -260,28 +281,27 @@ Function Run( _
         x2 = preparedDataCollection.Item("x2")
     End If
     
-    Dim yTarget() As Double
-    Dim yLower() As Double
-    Dim yUpper() As Double
-    Dim yStat() As Double
+    Dim yTarget() As Double, yLower() As Double, yUpper() As Double, yStat() As Double
     yTarget = preparedDataCollection.Item("yTarget")
     yLower = preparedDataCollection.Item("yLower")
     yUpper = preparedDataCollection.Item("yUpper")
     yStat = preparedDataCollection.Item("yStat")
     
+    '' Instantiate chart
     Dim chtObj As ChartObject
     Set chtObj = ws.ChartObjects.Add( _
         Left:=60, Top:=40, Width:=500, Height:=320 _
     )
-    
     Dim cht As Chart
     Set cht = chtObj.Chart
     cht.ChartType = xlLineMarkers
     
+    '' Remove existing series
     Do While cht.SeriesCollection.count > 0
         cht.SeriesCollection(1).Delete
     Loop
     
+    '' Basic scatterplot
     Dim serData As Series
     Set serData = cht.SeriesCollection.NewSeries
     With serData
@@ -295,7 +315,9 @@ Function Run( _
         .MarkerBackgroundColor = RGB(0, 0, 0)
     End With
     
+    '' Horizontal lines
     If LBound(yTarget) = 1 Then
+        ' Target exists
         Dim serTarget As Series
         Set serTarget = cht.SeriesCollection.NewSeries
         With serTarget
@@ -309,8 +331,8 @@ Function Run( _
             .MarkerStyle = xlMarkerStyleNone
         End With
     End If
-    
     If LBound(yLower) = 1 Then
+        ' Lower bound exists
         Dim serLower As Series
         Set serLower = cht.SeriesCollection.NewSeries
         With serLower
@@ -324,8 +346,8 @@ Function Run( _
             .MarkerStyle = xlMarkerStyleNone
         End With
     End If
-    
     If LBound(yUpper) = 1 Then
+        ' Upper bound exists
         Dim serUpper As Series
         Set serUpper = cht.SeriesCollection.NewSeries
         With serUpper
@@ -339,8 +361,8 @@ Function Run( _
             .MarkerStyle = xlMarkerStyleNone
         End With
     End If
-    
     If LBound(yStat) = 1 Then
+        ' Statistic exists
         Dim serStat As Series
         Set serStat = cht.SeriesCollection.NewSeries
         With serStat
@@ -354,7 +376,7 @@ Function Run( _
             .MarkerStyle = xlMarkerStyleNone
         End With
     End If
-    
+    '' Add secondary x-axis
     If Not IsMissing(x2DataRow) Then
         Dim serX2 As Series
         Set serX2 = cht.SeriesCollection.NewSeries
@@ -367,44 +389,46 @@ Function Run( _
             .Format.Line.Visible = msoFalse
             .MarkerStyle = xlMarkerStyleNone
         End With
-        
+        '' Show axis on top
         With cht
             .HasAxis(xlCategory, xlSecondary) = True
-            .Axes(xlCategory, xlSecondary).TickLabelPosition = _
-                xlTickLabelPositionNextToAxis
+            .Axes(xlCategory, xlSecondary).TickLabelPosition = xlTickLabelPositionNextToAxis
+            '' Hide secondary y-axis
             .HasAxis(xlValue, xlSecondary) = True
             .Axes(xlValue, xlSecondary).Delete
+            '' Remove from legend
             .HasLegend = True
             .Legend.LegendEntries(cht.Legend.LegendEntries.count).Delete
         End With
     End If
     
+    '' Add title
     If addTitle Then
         cht.HasTitle = True
         cht.chartTitle.Text = yDataRow.key
-        cht.chartTitle.Format.TextFrame2.TextRange.ParagraphFormat.Alignment _
-            = msoAlignLeft
+        cht.chartTitle.Format.TextFrame2.TextRange.ParagraphFormat.Alignment = msoAlignLeft
     End If
     
+    '' Add legend
     If addLegend Then
         cht.HasLegend = True
         cht.Legend.Position = xlLegendPositionBottom
     
-        Dim i As Long
         Dim lEntry As LegendEntry
         For i = cht.Legend.LegendEntries.count To 1 Step -1
             Set lEntry = cht.Legend.LegendEntries(i)
             If cht.SeriesCollection(i).name = "" Then lEntry.Delete
         Next i
     End If
-    
+    '' Add gridlines
     If addGrid Then
         cht.Axes(xlCategory).HasMajorGridlines = True
         cht.Axes(xlValue).HasMajorGridlines = True
     End If
     
-    Dim xAxis As Axis
-    Dim yAxis As Axis
+    '' ----- Format Axes: add axis names ----- ''
+    Dim xAxis As Axis, yAxis As Axis
+    
     Set xAxis = cht.Axes(xlCategory)
     Set yAxis = cht.Axes(xlValue)
     
@@ -423,11 +447,11 @@ Function Run( _
         End If
     End If
     
+    '' ----- Format Axes: adjust bounds based on data ----- ''
     Dim ySorted() As Double
     ySorted = StatUtils.Sort(StatUtils.RemoveNA(y))
     
-    Dim a As Double
-    Dim b As Double
+    Dim a As Double, b As Double
     a = ySorted(LBound(ySorted))
     b = ySorted(UBound(ySorted))
     
@@ -448,8 +472,7 @@ Function Run( _
         If yStat(1) > b Then b = yStat(1)
     End If
     
-    Dim yRange As Double
-    Dim yPadding As Double
+    Dim yRange As Double, yPadding As Double
     yRange = b - a
     yPadding = yMargins * yRange
     
@@ -458,3 +481,4 @@ Function Run( _
         .MaximumScale = b + yPadding
     End With
 End Function
+

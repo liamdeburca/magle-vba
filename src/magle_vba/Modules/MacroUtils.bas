@@ -1,28 +1,21 @@
 '===============================================================================
-' Module: MacroUtils
-'===============================================================================
-' Description:
-'   Utilities for managing macro dropdown menus in the Data sheet.
-'   Provides functionality to add dropdown validation cells and execute
-'   user-selected macros such as Describe, Sort, and Scatter plot.
-'===============================================================================
-
-'===============================================================================
 ' [FUNCTION] GetActiveDataRow
 '===============================================================================
 ' Description:
-'   Retrieves the DataRowCls instance corresponding to a given cell's row.
+'   Returns the DataRowCls instance that corresponds to the worksheet row
+'   of the specified cell. Looks up the row by its index in the current
+'   ParsedDataCls instance.
 '
 ' Parameters:
 '   cell : Range
-'       Any cell in the target row
+'       Any cell in the Data worksheet; its row number is used as the key
 '
 ' Returns:
-'   DataRowCls - The data row at the cell's row index
+'   DataRowCls
+'       The DataRowCls instance for that worksheet row
 '===============================================================================
-Private Function GetActiveDataRow( _
-    cell As Range _
-) As DataRowCls
+Private Function GetActiveDataRow(cell As Range) As DataRowCls
+    ' Gets the corresponding data row to the specified cell
     Dim ParsedData As ParsedDataCls
     Set ParsedData = GetParsedData()
 
@@ -33,34 +26,40 @@ End Function
 ' [SUB] ApplyMacrosToDataRow
 '===============================================================================
 ' Description:
-'   Adds a dropdown validation menu to the macro column cell for a data row.
-'   The dropdown contains options: Describe, Sort (ASC), Sort (DESC), Scatter.
+'   Adds an in-cell dropdown validation list to the macro column cell of
+'   the given DataRowCls instance. The dropdown offers these actions:
+'   Describe, Sort (ASC), Sort (DESC), Scatter. When the user selects an
+'   option, SheetData.Worksheet_Change fires and delegates to
+'   RunMacroFromDropdown.
 '
 ' Parameters:
 '   dataRow : DataRowCls
-'       The data row to add the macro dropdown to
+'       The row whose macro cell should receive the dropdown
+'
+' Notes:
+'   - Any existing validation on the cell is removed before adding a new
+'     one to avoid duplicates
 '===============================================================================
-Public Sub ApplyMacrosToDataRow( _
-    dataRow As DataRowCls _
-)
+Public Sub ApplyMacrosToDataRow(dataRow As DataRowCls)
+    ' Applies a macro dropdown menu to the macro-cell in each datarow
     Dim ws As Worksheet
     Set ws = ThisWorkbook.Sheets("Data")
-    
     Dim Specs As SpecsCls
     Set Specs = GetSpecs()
 
     Dim rng As Range
     Set rng = ws.Range(Specs.MacroColumn & dataRow.rowIdx)
 
+    ' Clear any existing validation first
     On Error Resume Next
     rng.Validation.Delete
     On Error GoTo 0
 
+    ' Add the new validation
     With rng.Validation
-        .Add _
-            Type:=xlValidateList, _
-            AlertStyle:=xlValidAlertStop, _
-            Formula1:="Describe,Sort (ASC),Sort (DESC),Scatter"
+        .Add Type:=xlValidateList, _
+             AlertStyle:=xlValidAlertStop, _
+             Formula1:="Describe,Sort (ASC),Sort (DESC),Scatter"
         .IgnoreBlank = True
         .InCellDropdown = True
         .InputTitle = "Select a macro to run"
@@ -72,16 +71,23 @@ End Sub
 ' [SUB] RunMacroFromDropdown
 '===============================================================================
 ' Description:
-'   Executes the macro specified by a dropdown cell value, then clears the
-'   cell. Supports Describe, Sort (ASC), Sort (DESC), and Scatter operations.
+'   Executes the action selected in a macro dropdown cell and then clears
+'   the cell so it returns to its default empty state. Supported actions:
+'     - Describe    : Shows a statistical summary for the row
+'     - Sort (ASC)  : Sorts all rows ascending by this row's values
+'     - Sort (DESC) : Sorts all rows descending by this row's values
+'     - Scatter     : Creates a basic scatter plot for this row
 '
 ' Parameters:
 '   cell : Range
-'       The dropdown cell containing the selected macro name
+'       The macro column cell that contains the selected action string
+'
+' Notes:
+'   - Called by SheetData.Worksheet_Change when the macro column changes
+'   - Does nothing if the cell is empty
 '===============================================================================
-Public Sub RunMacroFromDropdown( _
-    cell As Range _
-)
+Public Sub RunMacroFromDropdown(cell As Range)
+    ' Runs a macro specified by the cell, and subsequently clears the cell value
     Dim cellValue As Variant
     cellValue = cell.value
     
@@ -110,10 +116,9 @@ Public Sub RunMacroFromDropdown( _
             End If
             
         Case "Scatter"
-            Call PlottingMacros.BasicScatterPlot_(cell)
-            
+            Call BasicScatterPlot_(cell)
         Case Else
-            MsgBox "Macro " & CStr(cellValue) & " not implemented yet!"
+            MsgBox "Macro " & macro & "not implemented yet!"
     End Select
     
     cell.value = ""

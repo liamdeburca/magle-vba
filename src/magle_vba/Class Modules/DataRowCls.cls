@@ -247,6 +247,32 @@ Public Property Get key() As String
 End Property
 
 '===============================================================================
+' [PROPERTY] HasFormula
+'===============================================================================
+' Description:
+'   Indicates whether the first data cell in this row contains an Excel
+'   formula rather than a static value. Rows with formulas are excluded
+'   from the trailing-empty-cell crop logic because formula cells can
+'   extend across the full sheet.
+'
+' Returns:
+'   Boolean
+'       True if the first data cell contains a formula, False otherwise
+'===============================================================================
+Public Property Get HasFormula() As Boolean
+    Dim Specs As SpecsCls
+    Set Specs = ClsUtils.GetSpecs()
+    
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets("Data")
+    
+    Dim firstCell As Range
+    Set firstCell = ws.Range(Specs.DataStartColumn & pRowIdx)
+    
+    HasFormula = firstCell.HasFormula
+End Property
+
+'===============================================================================
 ' [SUB] Class_Initialize
 '===============================================================================
 ' Description:
@@ -354,23 +380,25 @@ Public Sub LoadFromSheet( _
     
     Dim startCol As Long
     startCol = ws.Range(Specs.DataStartColumn & "1").Column
+
+    On Error GoTo DataLoadError
     
     Dim i As Long
-    Dim cellValue As Variant
+    Dim cell As Range
     For i = 1 To Specs.NumColumns
-        cellValue = ws.Cells(rowIdx, startCol + i - 1).value
-        pRawData(i) = ws.Cells(rowIdx, startCol + i - 1).value
-        pTxtData(i) = ws.Cells(rowIdx, startCol + i - 1).Text
-
-        If IsNumeric(pRawData(i)) Then
-            pDblData(i) = CDbl(pRawData(i))
-        Else
-            pDblData(i) = CVErr(xlErrValue)
-        End If
+        Set cell = ws.Cells(rowIdx, startCol + i - 1)
+        pRawData(i) = cell.value
+        pTxtData(i) = cell.Text
+        pDblData(i) = CoercionUtils.CoerceDouble(cell.value)
     Next i
     
     Call ConvertDataUsingUnit
     Call WriteKey
+    Exit Sub
+DataLoadError:
+    Dim emsg As String
+    emsg = "Error loading data from cell at " & cell.Address & ": " & Err.Description
+    Err.Raise Err.Number, "DataRow.LoadFromSheet", emsg
 End Sub
 
 '===============================================================================
@@ -385,29 +413,23 @@ Private Sub ConvertDataUsingUnit()
     Dim i As Long
     Dim txtVal As String
 
+    On Error GoTo ConversionError
+
     Select Case pUnit
         Case "hh:mm"
             For i = LBound(pData) To UBound(pData)
                 txtVal = pTxtData(i)
-                If txtVal = "" Then
-                    pData(i) = CVErr(xlErrNA)
-                Else
-                    pData(i) = CDbl(TimeValue(txtVal))
-                End If
+                pData(i) = CoercionUtils.CoerceHHMM(txtVal)
             Next i
             
         Case "åååå-mm-dd", "åååå-mm"
             For i = LBound(pData) To UBound(pData)
                 txtVal = pTxtData(i)
-                If txtVal = "" Then
-                    pData(i) = CVErr(xlErrNA)
-                Else
-                    pData(i) = CDbl(DateValue(txtVal))
-                End If
+                pData(i) = CoercionUtils.CoerceYYYYMMDD(txtVal)
             Next i
-            If Not IsError(pTarget) Then pTarget = DateValue(CStr(pTarget))
-            If Not IsError(pMin) Then pMin = DateValue(CStr(pMin))
-            If Not IsError(pMax) Then pMax = DateValue(CStr(pMax))
+            If Not IsError(pTarget) Then pTarget = CoercionUtils.CoerceYYYYMMDD(CStr(pTarget))
+            If Not IsError(pMin) Then pMin = CoercionUtils.CoerceYYYYMMDD(CStr(pMin))
+            If Not IsError(pMax) Then pMax = CoercionUtils.CoerceYYYYMMDD(CStr(pMax))
             
         Case "txt"
             For i = LBound(pData) To UBound(pData)
@@ -416,12 +438,19 @@ Private Sub ConvertDataUsingUnit()
 
         Case Else
             For i = LBound(pData) To UBound(pData)
-                pData(i) = pDblData(i)
+                pData(i) = CoercionUtils.CoerceDouble(pDblData(i))
             Next i
-            If Not IsError(pTarget) Then pTarget = CDbl(pTarget)
-            If Not IsError(pMin) Then pMin = CDbl(pMin)
-            If Not IsError(pMax) Then pMax = CDbl(pMax)
+            If Not IsError(pTarget) Then pTarget = CoercionUtils.CoerceDouble(pTarget)
+            If Not IsError(pMin) Then pMin = CoercionUtils.CoerceDouble(pMin)
+            If Not IsError(pMax) Then pMax = CoercionUtils.CoerceDouble(pMax)
     End Select
+
+    Exit Sub
+    
+ConversionError:
+    Dim emsg As String
+    emsg = "Error converting data using unit '" & pUnit & "': " & Err.Description
+    Err.Raise Err.Number, "DataRow.ConvertDataUsingUnit", emsg
 End Sub
 
 '===============================================================================
@@ -456,8 +485,12 @@ End Sub
 '===============================================================================
 Public Function GetIndexOfLastNonEmpty() As Long
     Dim i As Long
+    Dim val As Variant
+    
     For i = UBound(pData) To LBound(pData) Step -1
-        If Not IsEmpty(pRawData(i)) And pRawData(i) <> "" Then
+        val = pRawData(i)
+        
+        If Not IsEmpty(val) And val <> "" And Not IsError(val) Then
             GetIndexOfLastNonEmpty = i
             Exit Function
         End If
@@ -992,6 +1025,73 @@ Public Function IsSorted( _
 End Function
 
 '===============================================================================
+' [FUNCTION] GetDateIntervalMask
+'===============================================================================
+' Description:
+'   Builds a Boolean mask indicating which batch columns fall within a
+'   user-selected date range. The user is prompted to enter a year, a year
+'   range (YYYY:YYYY), or press Enter to include all dates. This mask is
+'   then used to filter data before plotting.
+'
+'   Should only be called on the row identified by Specs.StartDateKey
+'   (the start-date row). If no batches match the selection, all entries
+'   are included and the user is notified.
+'
+' Returns:
+'   Boolean()
+'       Array with the same bounds as this row's Data array. True means
+'       the corresponding batch falls within the selected interval.
+'
+' Notes:
+'   - Raises error 1009 if called on a row other than the start-date row
+'   - Delegates date-range prompting to InteractionUtils.GetDateBounds
+'===============================================================================
+Public Function GetDateIntervalMask() As Boolean()
+    Dim Specs As SpecsCls
+    Set Specs = ClsUtils.GetSpecs()
+    
+    If Not Me.key = Specs.StartDateKey Then
+        Dim emsg As String
+        emsg = "This method should only be called for the DataRow with key " & _
+               Specs.StartDateKey & ", but was called on " & Me.key
+        Err.Raise 1009, "DataRow.GetDateIntervalMask", emsg
+        Exit Function
+    End If
+    
+    Dim dates() As Variant
+    dates = Me.Data
+    
+    Dim DateBounds() As Double
+    DateBounds = InteractionUtils.GetDateBounds()
+    
+    Dim mask() As Boolean
+    ReDim mask(LBound(dates) To UBound(dates))
+    
+    Dim i As Long
+    Dim anyInMask As Boolean
+    anyInMask = False
+    
+    For i = LBound(dates) To UBound(dates)
+        If IsError(dates(i)) Then
+            mask(i) = False
+        Else
+            mask(i) = DateBounds(1) <= dates(i) And dates(i) < DateBounds(2)
+        End If
+        
+        anyInMask = anyInMask Or mask(i)
+    Next i
+    
+    If Not anyInMask Then
+        MsgBox "No data in selected year(s)! Including all data..."
+        For i = LBound(dates) To UBound(dates)
+            mask(i) = True
+        Next i
+    End If
+    
+    GetDateIntervalMask = mask
+End Function
+
+'===============================================================================
 ' [SUB] Describe
 '===============================================================================
 ' Description:
@@ -999,7 +1099,28 @@ End Function
 '   entries, missing values, and bound violations. Outputs to both the
 '   Immediate window and a message box.
 '===============================================================================
-Public Sub Describe()
+Public Sub Describe(Optional withMask As Boolean = True)
+
+    If withMask Then
+        Dim Specs As SpecsCls
+        Set Specs = ClsUtils.GetSpecs()
+        
+        Dim ParsedData As ParsedDataCls
+        Set ParsedData = ClsUtils.GetParsedData()
+        
+        Dim refDataRow As DataRowCls
+        Set refDataRow = ParsedData.GetRowFromKey(Specs.StartDateKey)
+        
+        Dim mask() As Boolean
+        mask = refDataRow.GetDateIntervalMask()
+        
+        Dim cpDataRow As DataRowCls
+        Set cpDataRow = Me.ApplyMask(mask, inplace:=False)
+        
+        Call cpDataRow.Describe(withMask:=False)
+        Exit Sub
+    End If
+        
     Dim msg As String
     msg = Me.key & vbCrLf
     msg = msg & String(Len(Me.key), "-") & vbCrLf
@@ -1050,7 +1171,7 @@ End Sub
 ' [FUNCTION] IsNumeric
 '===============================================================================
 ' Description:
-'   Checks if a variant value can be converted to a numeric type.
+'   Checks if a varDtaiant value can be converted to a numeric type.
 '
 ' Parameters:
 '   value : Variant
@@ -1067,4 +1188,6 @@ Private Function IsNumeric( _
     IsNumeric = Not IsError(CDbl(value))
     On Error GoTo 0
 End Function
+
+
 
